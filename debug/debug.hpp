@@ -3,11 +3,10 @@
 
 #include "chunk.hpp"
 
-using Iter = chunk_t::const_iterator;
-
-void disassembleChunk(const chunk_t, std::string);
-void disassembleInstruction(Iter*, const chunk_t*);
+void disassembleChunk(std::string, Chunk*);
+void disassembleInstruction(Iter*, const chunk_array*, Chunk*);
 void simpleInstruction(std::string, Iter*);
+void constantInstruction(std::string, Iter*, Chunk*);
 
 
 #endif

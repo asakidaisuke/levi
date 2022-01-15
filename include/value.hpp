@@ -2,8 +2,19 @@
 #define LEVI_VALUE_H
 
 #include "common.hpp"
+#include "vector"
 
-using value = double;
+using value_t = double;
+using ValueArray = std::vector<value_t>;
+
+
+class Value{
+    public:
+        uint8_t addConstant(value_t value);
+        value_t getElement(int index);
+    private:
+        ValueArray value_stack;
+};
 
 
 #endif
