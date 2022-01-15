@@ -5,14 +5,14 @@
 
 void disassembleChunk(std::string name, Chunk* chunk){
     std::cout << name << std::endl;
-    const chunk_array chunk_stack = chunk->getChunk();
-    for(Iter iter=chunk_stack.begin(); iter != chunk_stack.end();){
-        disassembleInstruction(&iter, &chunk_stack, chunk);
+    chunk_array* chunk_stack = chunk->getChunk();
+    for(chunk_iter iter=chunk_stack->begin(); iter != chunk_stack->end();){
+        disassembleInstruction(&iter, chunk);
     }
 }
 
-void disassembleInstruction(Iter* iter, const chunk_array* chunk_stack, Chunk* chunk){
-    int offset = *iter - chunk_stack->begin();
+void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
+    int offset = *iter - chunk->getChunk()->begin();
     std::cout << std::setfill('0') << std::setw(4) << offset;
     if (offset > 0 && chunk->getLine(offset) == chunk->getLine(offset-1)){
         std::cout << "     |  ";
@@ -28,6 +28,21 @@ void disassembleInstruction(Iter* iter, const chunk_array* chunk_stack, Chunk* c
         case OP_CONSTANT:
             constantInstruction("OP_CONSTANT", iter, chunk);
             break;
+        case OP_ADD: 
+            simpleInstruction("OP_ADD", iter);
+            break;
+        case OP_SUBTRACT: 
+            simpleInstruction("OP_SUBTRACT", iter);
+            break;
+        case OP_MULTIPLY: 
+            simpleInstruction("OP_MULTIPLY", iter);
+            break;
+        case OP_DIVIDE: 
+            simpleInstruction("OP_DIVIDE", iter);
+            break;
+        case OP_NEGATE:
+            simpleInstruction("OP_NEGATE", iter);
+            break;
         default:
             std::cout << "unknown operation code " << instruction << std::endl;
             ++(*iter);
@@ -35,12 +50,12 @@ void disassembleInstruction(Iter* iter, const chunk_array* chunk_stack, Chunk* c
     }
 }
 
-void simpleInstruction(std::string op_name, Iter* iter){
+void simpleInstruction(std::string op_name, chunk_iter* iter){
     std::cout << " " << op_name << std::endl;
     ++(*iter);
 }
 
-void constantInstruction(std::string op_name, Iter* iter, Chunk* chunk){
+void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
     std::cout << " " << op_name;
     uint8_t offset = *(++(*iter));
     value_t val = chunk->getValue(offset);
