@@ -12,6 +12,9 @@ class Value{
     public:
         uint8_t addConstant(value_t value);
         value_t getElement(int index);
+        int getValueStackSize(){
+            return value_stack.size();
+        }
     private:
         ValueArray value_stack;
 };

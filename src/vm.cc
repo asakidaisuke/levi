@@ -2,6 +2,7 @@
 #include "vm.hpp"
 #include "common.hpp"
 #include "debug.hpp"
+#include "compiler.hpp"
 
 #define BINARY_OP(op) do{\
     double b = stack_pop();\
@@ -19,10 +20,22 @@ value_t VirtualMachine::stack_pop(){
     return *stack_ptr;
 }
 
-InterpretResult VirtualMachine::interpret(Chunk* chunk){
-    chunk_ptr = &chunk;
-    ip = chunk->getChunk()->begin();
-    return run();
+// InterpretResult VirtualMachine::interpret(Chunk* chunk){
+//     chunk_ptr = &chunk;
+//     ip = chunk->getChunk()->begin();
+//     return run();
+// }
+
+InterpretResult VirtualMachine::interpret(std::string source){
+    Compiler compiler(source);
+    if(!compiler.compile(source)){
+        return INTERPRET_COMPILE_ERROR;
+    }
+    chunk = compiler.get_chunk();
+    ip = chunk->getChunk()->begin();  // return first element iterator
+
+    InterpretResult result = run();
+    return result;
 }
 
 InterpretResult VirtualMachine::run(){
@@ -40,7 +53,7 @@ InterpretResult VirtualMachine::run(){
         switch (instruction = read_byte(&ip)){
             case OP_CONSTANT:{
                 // auto read_const = [](Iter* ip){return chunk->getValue(read_byte(&ip));};
-                value_t constant = (*chunk_ptr)->getValue(read_byte(&ip));
+                value_t constant = chunk->getValue(read_byte(&ip));
                 stack_push(constant);
                 break;
             }

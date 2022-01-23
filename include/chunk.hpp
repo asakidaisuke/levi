@@ -26,6 +26,7 @@ class Chunk{
         void writeValue(value_t, int);
         chunk_array* getChunk();
         value_t getValue(int);
+        int getValueSize();
         int getLine(int);
         Chunk(){
             chunk_stack = std::make_unique<chunk_array>();

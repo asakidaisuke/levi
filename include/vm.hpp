@@ -18,6 +18,7 @@ typedef enum {
 class VirtualMachine{
     public:
         InterpretResult interpret(Chunk* chunk);
+        InterpretResult interpret(std::string source);
         InterpretResult run();
         value_t stack_pop();
         void stack_push(value_t);
@@ -27,10 +28,10 @@ class VirtualMachine{
         }
     private:
         chunk_iter ip;
-        Chunk** chunk_ptr;
+        // Chunk** chunk_ptr;
+        std::unique_ptr<Chunk> chunk;
         std::unique_ptr<stack_array> stack_memory;
         stack_iter stack_ptr;
-        // int stack_ptr;
 };
 
 #endif

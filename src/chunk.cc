@@ -20,6 +20,10 @@ value_t Chunk::getValue(int index){
     return value.getElement(index);
 }
 
+int Chunk::getValueSize(){
+    return value.getValueStackSize();
+}
+
 int Chunk::getLine(int offset){
     return (*line_stack)[offset];
 }
