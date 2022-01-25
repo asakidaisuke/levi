@@ -62,6 +62,7 @@ class Compiler{
         void emitByte(uint8_t byte);
         void expression();
         void number();
+        void literal();
         void endCompiler();
         void emitReturn();
         void emitByte();

@@ -20,7 +20,6 @@ class VirtualMachine{
         InterpretResult interpret(Chunk* chunk);
         InterpretResult interpret(std::string source);
         InterpretResult run();
-        value_t stack_pop();
         void stack_push(value_t);
         VirtualMachine(): stack_ptr(0){
             stack_memory = std::make_unique<stack_array>(STACK_MAX);
@@ -28,10 +27,13 @@ class VirtualMachine{
         }
     private:
         chunk_iter ip;
-        // Chunk** chunk_ptr;
         std::unique_ptr<Chunk> chunk;
         std::unique_ptr<stack_array> stack_memory;
         stack_iter stack_ptr;
+        value_t stack_pop();
+        value_t peek(int);
+        bool isFalsey(value_t val);
+        void runtimeError(std::string format);
 };
 
 #endif

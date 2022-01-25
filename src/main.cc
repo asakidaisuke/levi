@@ -41,7 +41,7 @@ static void repl(){
     }
 }
 
-int main(int argc, char* argv[]){
+int main(int argc, const char* argv[]){
     Chunk chunk;
     VirtualMachine vm;
     // chunk.writeChunk(OP_CONSTANT, 123);

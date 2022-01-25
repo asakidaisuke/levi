@@ -112,12 +112,24 @@ void Compiler::binary(){
     ParseRule* rule = getRule(operatorType);
     parsePrecedence((Precedence)(rule->precedence + 1));
     switch(operatorType){
-        // case TOKEN_BANG_EQUAL:    emitBytes(OP_EQUAL, OP_NOT); break;
-        // case TOKEN_EQUAL_EQUAL:   emitByte(OP_EQUAL); break;
-        // case TOKEN_GREATER:       emitByte(OP_GREATER); break;
-        // case TOKEN_GREATER_EQUAL: emitBytes(OP_LESS, OP_NOT); break;
-        // case TOKEN_LESS:          emitByte(OP_LESS); break;
-        // case TOKEN_LESS_EQUAL:    emitBytes(OP_GREATER, OP_NOT); break;
+        case TOKEN_BANG_EQUAL:{
+            emitByte(OP_EQUAL);
+            emitByte(OP_NOT);
+            break;}
+        case TOKEN_EQUAL_EQUAL:
+            emitByte(OP_EQUAL); break;
+        case TOKEN_GREATER:
+            emitByte(OP_GREATER); break;
+        case TOKEN_GREATER_EQUAL:{
+            emitByte(OP_LESS);
+            emitByte(OP_NOT);
+            break;}
+        case TOKEN_LESS:
+            emitByte(OP_LESS); break;
+        case TOKEN_LESS_EQUAL:{
+            emitByte(OP_GREATER);
+            emitByte(OP_NOT);
+            break;}
         case TOKEN_PLUS:          emitByte(OP_ADD); break;
         case TOKEN_MINUS:         emitByte(OP_SUBTRACT); break;
         case TOKEN_STAR:          emitByte(OP_MULTIPLY); break;
@@ -136,7 +148,16 @@ void Compiler::number(){
             parser.previous.start, 
             parser.previous.start + parser.previous.length
         ));
-    emitConstant(value);
+    emitConstant(NUMBER_VAL(value));
+}
+
+void Compiler::literal(){
+    switch(parser.previous.type){
+        case TOKEN_FALSE: emitByte(OP_FALSE); break;
+        case TOKEN_NIL: emitByte(OP_NIL); break;
+        case TOKEN_TRUE: emitByte(OP_TRUE); break;
+        default: return;
+    }
 }
 
 void Compiler::emitConstant(value_t input_val){
@@ -181,9 +202,13 @@ void Compiler::unary(){
     TokenType operatorType = parser.previous.type;
     expression();
     switch(operatorType){
-        case TOKEN_MINUS: 
-            emitByte(OP_NEGATE);
+        case TOKEN_BANG:{
+            emitByte(OP_NOT);
             break;
+        }
+        case TOKEN_MINUS: {
+            emitByte(OP_NEGATE);
+            break;}
         default:
             return;
     }
@@ -256,21 +281,21 @@ void Compiler::init_rules(){
     rules[TOKEN_STAR] = ParseRule{
         NULL, std::bind(&Compiler::binary, this), PREC_FACTOR};
     rules[TOKEN_BANG] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::unary, this), NULL, PREC_NONE};
     rules[TOKEN_BANG_EQUAL] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_EQUALITY};
     rules[TOKEN_EQUAL] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_EQUAL_EQUAL] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_GREATER] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_GREATER_EQUAL] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_LESS] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_LESS_EQUAL] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_IDENTIFIER] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_STRING] = ParseRule{
@@ -284,7 +309,7 @@ void Compiler::init_rules(){
     rules[TOKEN_ELSE] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_FALSE] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::literal, this), NULL, PREC_NONE};
     rules[TOKEN_FOR] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_FUN] = ParseRule{
@@ -292,7 +317,7 @@ void Compiler::init_rules(){
     rules[TOKEN_IF] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_NIL] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::literal, this), NULL, PREC_NONE};
     rules[TOKEN_OR] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_PRINT] = ParseRule{
@@ -304,7 +329,7 @@ void Compiler::init_rules(){
     rules[TOKEN_THIS] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_TRUE] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::literal, this), NULL, PREC_NONE};
     rules[TOKEN_VAR] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_WHILE] = ParseRule{

@@ -28,6 +28,24 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
         case OP_CONSTANT:
             constantInstruction("OP_CONSTANT", iter, chunk);
             break;
+        case OP_NIL:
+            return simpleInstruction("OP_NIL", iter);
+            break;
+        case OP_TRUE:
+            return simpleInstruction("OP_TRUE", iter);
+            break;
+        case OP_FALSE:
+            return simpleInstruction("OP_FALSE", iter);
+            break;
+        case OP_EQUAL:
+            return simpleInstruction("OP_EQUAL", iter);
+            break;
+        case OP_GREATER:
+            return simpleInstruction("OP_GREATER", iter);
+            break;
+        case OP_LESS:
+            return simpleInstruction("OP_LESS", iter);
+            break;
         case OP_ADD: 
             simpleInstruction("OP_ADD", iter);
             break;
@@ -39,6 +57,9 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
             break;
         case OP_DIVIDE: 
             simpleInstruction("OP_DIVIDE", iter);
+            break;
+        case OP_NOT:
+            simpleInstruction("OP_NOT", iter);
             break;
         case OP_NEGATE:
             simpleInstruction("OP_NEGATE", iter);
@@ -59,6 +80,6 @@ void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
     std::cout << " " << op_name;
     uint8_t offset = *(++(*iter));
     value_t val = chunk->getValue(offset);
-    std::cout << " " << (long)offset << " " << val << std::endl;
+    std::cout << " " << (long)offset << " " << AS_NUMBER(val) << std::endl;
     ++(*iter);
 }
