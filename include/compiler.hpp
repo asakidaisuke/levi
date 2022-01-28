@@ -9,6 +9,7 @@
 #include "common.hpp"
 #ifdef DEBUG_PRINT_CODE
 #include "debug.hpp"
+#include "object.hpp"
 #endif
 
 
@@ -61,19 +62,32 @@ class Compiler{
         void consume(TokenType type, std::string message);
         void emitByte(uint8_t byte);
         void expression();
+        bool match(TokenType);
+        bool check(TokenType);
         void number();
+        void string();
+        void variable(bool);
         void literal();
+        void printStatement();
+        void expressionStatement();
+        void statement();
+        void varDeclaration();
+        void declaration();
+        void synchronize();
+        void defineVariable(uint8_t);
+        uint8_t identifierConstant(Token*);
+        void namedVariable(Token, bool);
         void endCompiler();
         void emitReturn();
         void emitByte();
-        // void emitBytes(uint8_t byte1, uint8_t byte2);
         void emitConstant(value_t input_val);
         void grouping();
         void unary();
         void binary();
+        uint8_t parseVariable(std::string);
         void parsePrecedence(Precedence precedence);
         void init_rules();
-        void makeConstant(value_t input_val);
+        uint8_t makeConstant(value_t input_val);
         ParseRule* getRule(TokenType type);
         Chunk* currentChunk();
         std::unique_ptr<Chunk> chunk;

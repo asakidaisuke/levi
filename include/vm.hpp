@@ -1,6 +1,7 @@
 #ifndef LEVI_VM_H
 #define LEVI_VM_H
 
+#include <unordered_map>
 #include "chunk.hpp"
 #include "value.hpp"
 
@@ -34,6 +35,9 @@ class VirtualMachine{
         value_t peek(int);
         bool isFalsey(value_t val);
         void runtimeError(std::string format);
+        void concatenate();
+        Obj* object;
+        std::unordered_map<std::string, value_t> globals_table;
 };
 
 #endif

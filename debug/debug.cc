@@ -15,7 +15,7 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
     int offset = *iter - chunk->getChunk()->begin();
     std::cout << std::setfill('0') << std::setw(4) << offset;
     if (offset > 0 && chunk->getLine(offset) == chunk->getLine(offset-1)){
-        std::cout << "     |  ";
+        std::cout << "  |  ";
     }else{
         std::cout << " " << std::setfill('0') << std::setw(4) << chunk->getLine(offset);
     }
@@ -29,22 +29,34 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
             constantInstruction("OP_CONSTANT", iter, chunk);
             break;
         case OP_NIL:
-            return simpleInstruction("OP_NIL", iter);
+            simpleInstruction("OP_NIL", iter);
             break;
         case OP_TRUE:
-            return simpleInstruction("OP_TRUE", iter);
+            simpleInstruction("OP_TRUE", iter);
             break;
         case OP_FALSE:
-            return simpleInstruction("OP_FALSE", iter);
+            simpleInstruction("OP_FALSE", iter);
+            break;
+        case OP_POP:
+            simpleInstruction("OP_POP", iter);
+            break;
+        case OP_GET_GLOBAL:
+            simpleInstruction("OP_GET_GLOBAL", iter);
+            break;
+        case OP_DEFINE_GLOBAL:
+            constantInstruction("OP_DEFINE_GLOBAL", iter, chunk);
+            break;
+        case OP_SET_GLOBAL:
+            simpleInstruction("OP_SET_GLOBAL", iter);
             break;
         case OP_EQUAL:
-            return simpleInstruction("OP_EQUAL", iter);
+            simpleInstruction("OP_EQUAL", iter);
             break;
         case OP_GREATER:
-            return simpleInstruction("OP_GREATER", iter);
+            simpleInstruction("OP_GREATER", iter);
             break;
         case OP_LESS:
-            return simpleInstruction("OP_LESS", iter);
+            simpleInstruction("OP_LESS", iter);
             break;
         case OP_ADD: 
             simpleInstruction("OP_ADD", iter);
@@ -64,6 +76,8 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
         case OP_NEGATE:
             simpleInstruction("OP_NEGATE", iter);
             break;
+        case OP_PRINT:
+            simpleInstruction("OP_PRINT", iter);
         default:
             std::cout << "unknown operation code " << instruction << std::endl;
             ++(*iter);
@@ -80,6 +94,7 @@ void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
     std::cout << " " << op_name;
     uint8_t offset = *(++(*iter));
     value_t val = chunk->getValue(offset);
-    std::cout << " " << (long)offset << " " << AS_NUMBER(val) << std::endl;
+    std::cout << " " << (long)offset << " ";
+    Value::printValue(val);
     ++(*iter);
 }

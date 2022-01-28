@@ -4,73 +4,7 @@
 #include "scanner.hpp"
 
 
-// void Compiler::compile(std::string source){
-//     int line = -1;
-//     Scanner scanner(&source);
-//     for(;;){
-//         Token token = scanner.scanToken();
-//         if (token.line != line){
-//             std::cout << token.line;
-//             line = token.line;
-//         }else{
-//             std::cout << "|";
-//         }
-//         std::cout << " " << token.type << " ";
-//         // ここ
-//         for (int i = 0; i < token.length; i++)
-//             std::cout << token.start[i];
-//         // std::cout << *token.start.begin();
-//         std::cout<< std::endl;
-//         if(token.type == TOKEN_EOF) break;
-//     }
-// }
-
-
-// ここハッシュマップ使うとか、そのあとコンパイル通す、でデバッグ
-// void Compiler::init_rules(){
-//     rules = {
-//         [TOKEN_LEFT_PAREN]    = {grouping, NULL,   PREC_NONE},
-//         [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE}, // [big]
-//         [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_DOT]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
-//         [TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
-//         [TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR},
-//         [TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR},
-//         [TOKEN_BANG]          = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_BANG_EQUAL]    = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_EQUAL]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_EQUAL_EQUAL]   = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_GREATER]       = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_GREATER_EQUAL] = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_LESS]          = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_LESS_EQUAL]    = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_STRING]        = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
-//         [TOKEN_AND]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_FALSE]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_NIL]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_OR]            = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_TRUE]          = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE},
-//         [TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE},
-//     };
-// }
+using namespace std::placeholders;
 
 void Compiler::advance(){
     parser.previous = parser.current;
@@ -92,6 +26,16 @@ void Compiler::consume(TokenType type, std::string message){
         return;
     }
     errorAtCurrent(message);
+}
+
+bool Compiler::match(TokenType type){
+    if(!check(type)) return false;
+    advance();
+    return true;
+}
+
+bool Compiler::check(TokenType type){
+    return parser.current.type == type;
 }
 
 Chunk* Compiler::currentChunk(){
@@ -142,6 +86,103 @@ void Compiler::expression(){
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+void Compiler::printStatement(){
+    expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+    emitByte(OP_PRINT);
+}
+
+void Compiler::expressionStatement(){
+    expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
+    emitByte(OP_POP);
+}
+
+void Compiler::statement(){
+    if(match(TOKEN_PRINT)){
+        printStatement();
+    }else{
+        expressionStatement();
+    }
+}
+
+void Compiler::varDeclaration(){
+    uint8_t global = parseVariable("Expect variable name.");
+    if(match(TOKEN_EQUAL)){
+        expression();
+    }else{
+        emitByte(OP_NIL);
+    }
+    consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+    defineVariable(global);
+}
+
+void Compiler::declaration(){
+    if (match(TOKEN_VAR)){
+        varDeclaration();
+    }else{
+        statement();
+    }
+    if(parser.panicMode) synchronize();
+}
+
+void Compiler::synchronize(){
+    parser.panicMode = false;
+
+    while(parser.current.type != TOKEN_EOF){
+        if(parser.previous.type == TOKEN_SEMICOLON) return;
+        switch(parser.current.type){
+            case TOKEN_CLASS:
+            case TOKEN_FUN:
+            case TOKEN_VAR:
+            case TOKEN_FOR:
+            case TOKEN_IF:
+            case TOKEN_WHILE:
+            case TOKEN_PRINT:
+            case TOKEN_RETURN:
+                return;
+      default:
+        ;
+        }
+        advance();
+    }
+}
+
+uint8_t Compiler::makeConstant(value_t val) {
+  int constant = chunk->addConstantToValue(val);
+  if (constant > UINT8_MAX) {
+    error("Too many constants in one chunk.");
+    return 0;
+  }
+  return (uint8_t)constant;
+}
+
+void Compiler::string(){
+    ObjString* objString = new ObjString;
+    Object::getObjString(
+        std::string(parser.previous.start + 1,
+                        parser.previous.start + parser.previous.length-1),
+        objString
+    );
+    emitConstant(OBJ_VAL(objString));
+}
+
+void Compiler::namedVariable(Token name, bool canAssign){
+    uint8_t arg = identifierConstant(&name);
+    if(canAssign && match(TOKEN_EQUAL)){
+        expression();
+        emitByte(OP_GET_GLOBAL);
+        emitByte(arg);
+    }else{
+        emitByte(OP_GET_GLOBAL);
+        emitByte(arg);
+    }
+}
+
+void Compiler::variable(bool canAssign){
+    namedVariable(parser.previous, canAssign);
+}
+
 void Compiler::number(){
     double value = std::stod(
         std::string(
@@ -161,21 +202,9 @@ void Compiler::literal(){
 }
 
 void Compiler::emitConstant(value_t input_val){
-    // emitBytes(OP_CONSTANT, makeConstant(value));
     chunk->writeChunk(OP_CONSTANT, parser.previous.line);
     chunk->writeValue(input_val, parser.previous.line);
 }
-
-// void Compiler::emitBytes(uint8_t byte1, uint8_t byte2){
-//     emitByte(byte1);
-//     emitByte(byte2);
-// }
-
-
-// void Compiler::emitBytes(uint8_t byte1, uint8_t byte2){
-//     emitByte(byte1);
-//     emitByte(byte2);
-// }
 
 void Compiler::emitByte(uint8_t op_code){
     chunk->writeChunk(op_code, parser.previous.line);
@@ -185,13 +214,6 @@ void Compiler::emitReturn(){
     emitByte(OP_RETURN);
 }
 
-// void Compiler::makeConstant(value_t input_val){
-//     chunk->writeValue(input_val, parser.previous.line);
-//     if(chunk->getValueSize()> UINT8_MAX){
-//         error("Too many constant in one chunk.");
-//         return 0;
-//     }
-// }
 
 void Compiler::grouping(){
     expression();
@@ -212,6 +234,25 @@ void Compiler::unary(){
         default:
             return;
     }
+}
+
+uint8_t Compiler::parseVariable(std::string errorMessage){
+    consume(TOKEN_IDENTIFIER, errorMessage);
+    return identifierConstant(&parser.previous);
+}
+
+void Compiler::defineVariable(uint8_t global){
+    emitByte(OP_DEFINE_GLOBAL);
+    emitByte(global);
+}
+
+uint8_t Compiler::identifierConstant(Token* name){
+    ObjString* objString = new ObjString;
+    Object::getObjString(
+        std::string(name->start, name->start + name->length),
+        objString
+    );
+    return makeConstant(OBJ_VAL(objString));
 }
 
 void Compiler::parsePrecedence(Precedence precedence){
@@ -251,8 +292,11 @@ void Compiler::errorAt(Token* token, std::string message){
 
 bool Compiler::compile(std::string source){
     advance();
-    expression();
-    consume(TOKEN_EOF, "Expect end of expression.");
+    // expression();
+    // consume(TOKEN_EOF, "Expect end of expression.");
+    while(!match(TOKEN_EOF)){
+        declaration();
+    }
     endCompiler();
     return !parser.hadError;
 }
@@ -297,9 +341,9 @@ void Compiler::init_rules(){
     rules[TOKEN_LESS_EQUAL] = ParseRule{
         NULL, std::bind(&Compiler::binary, this), PREC_COMPARISON};
     rules[TOKEN_IDENTIFIER] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::variable, this, true), NULL, PREC_NONE};
     rules[TOKEN_STRING] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::string, this), NULL, PREC_NONE};
     rules[TOKEN_NUMBER] = ParseRule{
         std::bind(&Compiler::number, this), NULL, PREC_NONE};
     rules[TOKEN_AND] = ParseRule{

@@ -10,6 +10,10 @@ chunk_array* Chunk::getChunk(){
     return chunk_stack.get();
 }
 
+uint8_t Chunk::addConstantToValue(value_t val){
+    return value.addConstant(val);
+}
+
 void Chunk::writeValue(value_t val, int line){
     uint8_t constant_index = value.addConstant(val);
     chunk_stack->push_back(constant_index);
