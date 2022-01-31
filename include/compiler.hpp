@@ -10,6 +10,7 @@
 #ifdef DEBUG_PRINT_CODE
 #include "debug.hpp"
 #include "object.hpp"
+#define UINT8_COUT (UINT8_MAX + 1)
 #endif
 
 
@@ -38,6 +39,17 @@ struct ParseRule{
     std::function<void()> prefix;
     std::function<void()> infix;
     Precedence precedence;
+};
+
+struct Local{
+    Token name;
+    int depth;
+};
+
+struct CompilerState{
+    Local locals[UINT8_COUT];
+    int localCount{0};
+    int scopeDepth{0};
 };
 
 class Compiler{
@@ -84,16 +96,26 @@ class Compiler{
         void grouping();
         void unary();
         void binary();
+        void block();
+        void beginScope();
+        void endScope();
+        void declareVariable();
+        void addLocal(Token);
+        void identifierEqual();
+        void markInitialized();
         uint8_t parseVariable(std::string);
+        bool identifierEqual(Token*, Token*);
         void parsePrecedence(Precedence precedence);
         void init_rules();
         uint8_t makeConstant(value_t input_val);
         ParseRule* getRule(TokenType type);
+        int resolveLocal(CompilerState* , Token* );
         Chunk* currentChunk();
         std::unique_ptr<Chunk> chunk;
         Parser parser;
         Scanner scanner;
         std::unordered_map<TokenType, ParseRule> rules;
+        CompilerState compilerState;
 };
 
 #endif

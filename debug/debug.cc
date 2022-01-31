@@ -40,6 +40,12 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
         case OP_POP:
             simpleInstruction("OP_POP", iter);
             break;
+        case OP_GET_LOCAL:
+            byteInstruction("OP_GET_LOCAL", iter, chunk);
+            break;
+        case OP_SET_LOCAL:
+            byteInstruction("OP_SET_LOCAL", iter, chunk);
+            break;
         case OP_GET_GLOBAL:
             simpleInstruction("OP_GET_GLOBAL", iter);
             break;
@@ -78,6 +84,7 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
             break;
         case OP_PRINT:
             simpleInstruction("OP_PRINT", iter);
+            break;
         default:
             std::cout << "unknown operation code " << instruction << std::endl;
             ++(*iter);
@@ -90,11 +97,21 @@ void simpleInstruction(std::string op_name, chunk_iter* iter){
     ++(*iter);
 }
 
+int byteInstruction(std::string name, chunk_iter* iter, Chunk* chunk){
+    uint8_t offset = *(++(*iter));
+    std::cout << name << " " << offset << std::endl;
+    return ++offset;
+}
+
 void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
     std::cout << " " << op_name;
     uint8_t offset = *(++(*iter));
-    value_t val = chunk->getValue(offset);
-    std::cout << " " << (long)offset << " ";
-    Value::printValue(val);
+    if (offset < chunk->getValueSize()){
+        value_t val = chunk->getValue(offset);
+        std::cout << " " << (long)offset << " ";
+        Value::printValue(val);
+    }else{
+        std::cout << std::endl;
+    }
     ++(*iter);
 }

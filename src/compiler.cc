@@ -74,10 +74,10 @@ void Compiler::binary(){
             emitByte(OP_GREATER);
             emitByte(OP_NOT);
             break;}
-        case TOKEN_PLUS:          emitByte(OP_ADD); break;
-        case TOKEN_MINUS:         emitByte(OP_SUBTRACT); break;
-        case TOKEN_STAR:          emitByte(OP_MULTIPLY); break;
-        case TOKEN_SLASH:         emitByte(OP_DIVIDE); break;
+        case TOKEN_PLUS:    emitByte(OP_ADD); break;
+        case TOKEN_MINUS:   emitByte(OP_SUBTRACT); break;
+        case TOKEN_STAR:    emitByte(OP_MULTIPLY); break;
+        case TOKEN_SLASH:   emitByte(OP_DIVIDE); break;
         default: return; 
     }
 }
@@ -101,9 +101,34 @@ void Compiler::expressionStatement(){
 void Compiler::statement(){
     if(match(TOKEN_PRINT)){
         printStatement();
+    }else if(match(TOKEN_LEFT_BRACE)){
+        beginScope();
+        block();
+        endScope();
     }else{
         expressionStatement();
     }
+}
+
+void Compiler::beginScope(){
+    compilerState.scopeDepth++;
+}
+
+void Compiler::endScope(){
+    compilerState.scopeDepth--;
+
+    while(compilerState.localCount > 0 && compilerState.locals[compilerState.localCount-1].depth >
+                compilerState.scopeDepth){
+            emitByte(OP_POP);
+            compilerState.localCount--;
+        }
+}
+
+void Compiler::block(){
+    while(!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)){
+        declaration();
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block." );
 }
 
 void Compiler::varDeclaration(){
@@ -167,15 +192,37 @@ void Compiler::string(){
     emitConstant(OBJ_VAL(objString));
 }
 
+int Compiler::resolveLocal(CompilerState* compilerState, Token* name){
+    for(int i = compilerState->localCount-1; i >=0; i--){
+        Local* local = &compilerState->locals[i];
+        if (identifierEqual(name, &local->name)){
+            if(local->depth == -1){
+                error("Cant't read local variable in its own initializer.");
+            }
+            return i;
+        }
+    }
+    return -1;
+}
+
 void Compiler::namedVariable(Token name, bool canAssign){
-    uint8_t arg = identifierConstant(&name);
+    uint8_t getOp, setOp;
+    int arg = resolveLocal(&compilerState, &name);
+    if(arg != -1){
+        getOp = OP_GET_LOCAL;
+        setOp = OP_SET_LOCAL;
+    } else{
+        arg = identifierConstant(&name);
+        getOp = OP_GET_GLOBAL;
+        setOp = OP_GET_GLOBAL;
+    }
     if(canAssign && match(TOKEN_EQUAL)){
         expression();
-        emitByte(OP_GET_GLOBAL);
-        emitByte(arg);
+        emitByte(setOp);
+        emitByte((uint8_t)arg);
     }else{
-        emitByte(OP_GET_GLOBAL);
-        emitByte(arg);
+        emitByte(getOp);
+        emitByte((uint8_t)arg);
     }
 }
 
@@ -238,10 +285,54 @@ void Compiler::unary(){
 
 uint8_t Compiler::parseVariable(std::string errorMessage){
     consume(TOKEN_IDENTIFIER, errorMessage);
+    declareVariable();
+    if(compilerState.scopeDepth > 0) return 0;
     return identifierConstant(&parser.previous);
 }
 
+void Compiler::markInitialized(){
+    compilerState.locals[compilerState.localCount-1].depth = compilerState.scopeDepth;
+}
+
+bool Compiler::identifierEqual(Token* a, Token* b){
+    if(a->length != b->length) return false;
+    return std::string(a->start, a->start + a->length) == \
+            std::string(b->start, b->start + b->length);
+}
+
+void Compiler::declareVariable(){
+    if(compilerState.scopeDepth == 0) return;
+
+    Token* name = &parser.previous;
+
+    for(int i=compilerState.localCount-1; i>=0; i--){
+        Local* local = &compilerState.locals[i];
+        if(local->depth != -1 && local->depth < compilerState.scopeDepth){
+            break;
+        }
+
+        if(identifierEqual(name, &local->name)){
+            error("Already a variable with this name in this scope.");
+        }
+    }
+    addLocal(*name);
+}
+
+void Compiler::addLocal(Token name){
+    if(compilerState.localCount == UINT8_COUT){
+        error("Too many local variables in function.");
+        return;
+    }
+    Local* local = &compilerState.locals[compilerState.localCount++];
+    local->name = name;
+    local->depth = compilerState.scopeDepth;
+}
+
 void Compiler::defineVariable(uint8_t global){
+    if(compilerState.scopeDepth > 0){
+        markInitialized();
+        return;
+    }
     emitByte(OP_DEFINE_GLOBAL);
     emitByte(global);
 }

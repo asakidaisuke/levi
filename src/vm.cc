@@ -89,6 +89,16 @@ InterpretResult VirtualMachine::run(){
             case OP_TRUE: stack_push(BOOL_VAL(true)); break;
             case OP_FALSE: stack_push(BOOL_VAL(false)); break;
             case OP_POP: stack_pop(); break;
+            case OP_GET_LOCAL:{
+                uint8_t slot = read_byte(&ip);
+                stack_push((*stack_memory)[slot]);
+                break;
+            }
+            case OP_SET_LOCAL:{
+                uint8_t slot = read_byte(&ip);
+                (*stack_memory)[slot] = peek(0);
+                break;
+            }
             case OP_GET_GLOBAL:{
                 ObjString* name = AS_STRING(chunk->getValue(read_byte(&ip)));
                 value_t val;
@@ -105,6 +115,7 @@ InterpretResult VirtualMachine::run(){
             case OP_DEFINE_GLOBAL:{
                 ObjString* name = AS_STRING(chunk->getValue(read_byte(&ip)));
                 globals_table[name->strs] = peek(0);
+                stack_pop();
                 break;
             }
             case OP_SET_GLOBAL:{
@@ -156,8 +167,8 @@ InterpretResult VirtualMachine::run(){
                 break;
             }
             case OP_RETURN:{
-                value_t ret = stack_pop();
-                Value::printValue(ret);
+                // value_t ret = stack_pop();
+                // Value::printValue(ret);
                 return INTERPRET_OK;
             }
         }
