@@ -37,8 +37,8 @@ bool Value::valuesEqual(value_t a, value_t b){
             return AS_BOOL(a) == AS_BOOL(b);
         case VAL_NIL:
             return true;
-        case VAL_NUMBER:
-            return AS_NUMBER(a) = AS_NUMBER(b);
+        case VAL_NUMBER:{
+            return AS_NUMBER(a) == AS_NUMBER(b);}
         case VAL_OBJ: {
             ObjString* aString = AS_STRING(a);
             ObjString* bString = AS_STRING(b);

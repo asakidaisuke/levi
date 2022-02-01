@@ -149,7 +149,7 @@ TokenType Scanner::checkKeyword(
     int w_start, int w_length, std::string rest, TokenType type){
         std::string::iterator temp = start;
         if(current - start == w_start + w_length){
-            temp++;
+            temp += w_start;
             for(int i=0; i<w_length; i++){
                 if (*temp != rest[i]){
                     return TOKEN_IDENTIFIER;

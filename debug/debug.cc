@@ -85,6 +85,14 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
         case OP_PRINT:
             simpleInstruction("OP_PRINT", iter);
             break;
+        case OP_JUMP:
+            jumpInstruction("OP_JUMP", 1, chunk, iter);
+            break;
+        case OP_JUMP_IF_FALSE:
+            jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, iter);
+        case OP_LOOP:
+            jumpInstruction("OP_LOOP", -1, chunk, iter);
+            break;
         default:
             std::cout << "unknown operation code " << instruction << std::endl;
             ++(*iter);
@@ -104,7 +112,7 @@ int byteInstruction(std::string name, chunk_iter* iter, Chunk* chunk){
 }
 
 void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
-    std::cout << " " << op_name;
+    std::cout << "  " << op_name;
     uint8_t offset = *(++(*iter));
     if (offset < chunk->getValueSize()){
         value_t val = chunk->getValue(offset);
@@ -114,4 +122,13 @@ void constantInstruction(std::string op_name, chunk_iter* iter, Chunk* chunk){
         std::cout << std::endl;
     }
     ++(*iter);
+}
+
+void jumpInstruction(std::string name, int sign,
+                           Chunk* chunk, chunk_iter* iter) {
+  uint16_t jump = (uint16_t)(*(++(*iter)) << 8);
+  *(iter) += 2;
+  jump |= *((*iter) + 2);
+  std::cout << name << std::endl;
+  iter += 3;
 }

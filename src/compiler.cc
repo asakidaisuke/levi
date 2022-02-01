@@ -92,15 +92,94 @@ void Compiler::printStatement(){
     emitByte(OP_PRINT);
 }
 
+void Compiler::forStatement(){
+    beginScope();
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+    if(match(TOKEN_SEMICOLON)){
+
+    } else if(match(TOKEN_VAR)){
+        varDeclaration();
+    } else {
+        expressionStatement();
+    }
+    int loopStart = currentChunk()->getChunk()->size();
+    int exitJump = -1;
+    if(!match(TOKEN_SEMICOLON)){
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+
+        exitJump = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+    }
+
+    if (!match(TOKEN_RIGHT_PAREN)) {
+        int bodyJump = emitJump(OP_JUMP);
+        int incrementStart = currentChunk()->getChunk()->size();
+        expression();
+        emitByte(OP_POP);
+        consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        emitLoop(loopStart);
+        loopStart = incrementStart;
+        patchJump(bodyJump);
+    }
+
+    statement();
+    emitLoop(loopStart);
+
+    if(exitJump != -1){
+        patchJump(exitJump);
+        emitByte(OP_POP);
+    }
+    endScope();
+}
+
+void Compiler::whileStatement(){
+    int loopStart = currentChunk()->getChunk()->size();
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    int exitJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP);
+    statement();
+    emitLoop(loopStart);
+
+    patchJump(exitJump);
+    emitByte(OP_POP);
+}
+
 void Compiler::expressionStatement(){
     expression();
     consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
     emitByte(OP_POP);
 }
 
+void Compiler::ifStatement(){
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    int thenJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP);
+    statement();
+    int elseJump = emitJump(OP_JUMP);
+    patchJump(thenJump);
+    emitByte(OP_POP);
+
+    if(match(TOKEN_ELSE)) statement();
+    patchJump(elseJump);
+}
+
 void Compiler::statement(){
     if(match(TOKEN_PRINT)){
         printStatement();
+    }else if(match(TOKEN_IF)){
+        ifStatement();
+    }else if(match(TOKEN_WHILE)){
+        whileStatement();
+    }else if(match(TOKEN_FOR)){
+        forStatement();
     }else if(match(TOKEN_LEFT_BRACE)){
         beginScope();
         block();
@@ -214,7 +293,7 @@ void Compiler::namedVariable(Token name, bool canAssign){
     } else{
         arg = identifierConstant(&name);
         getOp = OP_GET_GLOBAL;
-        setOp = OP_GET_GLOBAL;
+        setOp = OP_SET_GLOBAL;
     }
     if(canAssign && match(TOKEN_EQUAL)){
         expression();
@@ -248,6 +327,22 @@ void Compiler::literal(){
     }
 }
 
+void Compiler::patchJump(int offset){
+    int jump = currentChunk()->getChunk()->size() - offset - 2;
+    if(jump > UINT16_MAX){
+        error("Too much code to jump over.");
+    }
+    (*currentChunk()->getChunk())[offset] = (jump >> 8) & 0xff;
+    (*currentChunk()->getChunk())[offset+1] = jump & 0xff;
+}
+
+int Compiler::emitJump(uint8_t instruction){
+    emitByte(instruction);
+    emitByte(0xff);
+    emitByte(0xff);
+    return currentChunk()->getChunk()->size() - 2;
+}
+
 void Compiler::emitConstant(value_t input_val){
     chunk->writeChunk(OP_CONSTANT, parser.previous.line);
     chunk->writeValue(input_val, parser.previous.line);
@@ -255,6 +350,15 @@ void Compiler::emitConstant(value_t input_val){
 
 void Compiler::emitByte(uint8_t op_code){
     chunk->writeChunk(op_code, parser.previous.line);
+}
+
+void Compiler::emitLoop(int loopStart){
+    emitByte(OP_LOOP);
+
+    int offset = currentChunk()->getChunk()->size() - loopStart + 2;
+    if(offset > UINT16_MAX) error("Loop body too large.");
+    emitByte((offset >> 8) & 0xff);
+    emitByte(offset & 0xff);
 }
 
 void Compiler::emitReturn(){
@@ -304,7 +408,7 @@ void Compiler::declareVariable(){
     if(compilerState.scopeDepth == 0) return;
 
     Token* name = &parser.previous;
-
+    // look above level local variable
     for(int i=compilerState.localCount-1; i>=0; i--){
         Local* local = &compilerState.locals[i];
         if(local->depth != -1 && local->depth < compilerState.scopeDepth){
@@ -335,6 +439,26 @@ void Compiler::defineVariable(uint8_t global){
     }
     emitByte(OP_DEFINE_GLOBAL);
     emitByte(global);
+}
+
+void Compiler::and_(bool canAssign){
+    int endJump = emitJump(OP_JUMP_IF_FALSE);
+
+    emitByte(OP_POP);
+    parsePrecedence(PREC_AND);
+
+    patchJump(endJump);
+}
+
+void Compiler::or_(bool canAssign){
+    int elseJump = emitJump(OP_JUMP_IF_FALSE);
+    int endJump = emitJump(OP_JUMP);
+
+    patchJump(elseJump);
+    emitByte(OP_POP);
+
+    parsePrecedence(PREC_OR);
+    patchJump(endJump);
 }
 
 uint8_t Compiler::identifierConstant(Token* name){
@@ -438,7 +562,7 @@ void Compiler::init_rules(){
     rules[TOKEN_NUMBER] = ParseRule{
         std::bind(&Compiler::number, this), NULL, PREC_NONE};
     rules[TOKEN_AND] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::and_, this, true), PREC_AND};
     rules[TOKEN_CLASS] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_ELSE] = ParseRule{
@@ -454,7 +578,7 @@ void Compiler::init_rules(){
     rules[TOKEN_NIL] = ParseRule{
         std::bind(&Compiler::literal, this), NULL, PREC_NONE};
     rules[TOKEN_OR] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::or_, this, true), PREC_OR};
     rules[TOKEN_PRINT] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_RETURN] = ParseRule{

@@ -64,6 +64,7 @@ void VirtualMachine::runtimeError(std::string format){
 
 InterpretResult VirtualMachine::run(){
     auto read_byte = [](chunk_iter* ip){chunk_iter ret_ip = *ip; (*ip)++; return *ret_ip;};
+    auto read_short = [](VirtualMachine* vm){vm->ip += 2; return (uint16_t)((vm->ip[-2] << 8) | vm->ip[-1]);};
     for(;;){
         #ifdef DEBUG_TRACE_EXECUTION
             std::cout << "             " << std::endl;
@@ -165,6 +166,21 @@ InterpretResult VirtualMachine::run(){
                 Value::printValue(stack_pop());
                 std::cout << std::endl;
                 break;
+            }
+            case OP_JUMP:{
+                uint16_t offset = read_short(this);
+                ip += offset;
+                break;
+            }
+            case OP_JUMP_IF_FALSE:{
+                uint16_t offset = read_short(this);
+                if (isFalsey(peek(0))) ip += offset;
+                break;
+            }
+            case OP_LOOP: {
+                uint16_t offset = read_short(this);
+                ip -= offset;
+                break; 
             }
             case OP_RETURN:{
                 // value_t ret = stack_pop();
