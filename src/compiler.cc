@@ -6,6 +6,11 @@
 
 using namespace std::placeholders;
 
+
+void Compiler::setCurrent(Compiler* compiler){
+    currentCompiler = compiler;
+}
+
 void Compiler::advance(){
     parser.previous = parser.current;
     for(;;){
@@ -39,16 +44,18 @@ bool Compiler::check(TokenType type){
 }
 
 Chunk* Compiler::currentChunk(){
-    return chunk.get();
+    return currentCompiler->compilerState.function->chunk.get();
 }
 
-void Compiler::endCompiler(){
+ObjFunction* Compiler::endCompiler(){
     emitReturn();
+    ObjFunction* local_function = currentCompiler->compilerState.function;
     #ifdef DEBUG_PRINT_CODE
         if (!parser.hadError){
-            disassembleChunk("code", currentChunk());
+            disassembleChunk("code", local_function->chunk.get());
         }
     #endif
+    return local_function;
 }
 
 void Compiler::binary(){
@@ -171,6 +178,21 @@ void Compiler::ifStatement(){
     patchJump(elseJump);
 }
 
+
+void Compiler::returnStatement(){
+    if(currentCompiler->compilerState.type == TYPE_SCRIPT){
+        error("Can't return from top-level code.");
+    }
+
+    if(match(TOKEN_RETURN)){
+        emitReturn();
+    }else{
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+        emitByte(OP_RETURN);
+    }
+}
+
 void Compiler::statement(){
     if(match(TOKEN_PRINT)){
         printStatement();
@@ -180,6 +202,8 @@ void Compiler::statement(){
         whileStatement();
     }else if(match(TOKEN_FOR)){
         forStatement();
+    }else if(match(TOKEN_RETURN)){
+        returnStatement();
     }else if(match(TOKEN_LEFT_BRACE)){
         beginScope();
         block();
@@ -190,11 +214,11 @@ void Compiler::statement(){
 }
 
 void Compiler::beginScope(){
-    compilerState.scopeDepth++;
+    currentCompiler->compilerState.scopeDepth++;
 }
 
 void Compiler::endScope(){
-    compilerState.scopeDepth--;
+    currentCompiler->compilerState.scopeDepth--;
 
     while(compilerState.localCount > 0 && compilerState.locals[compilerState.localCount-1].depth >
                 compilerState.scopeDepth){
@@ -221,9 +245,18 @@ void Compiler::varDeclaration(){
     defineVariable(global);
 }
 
+void Compiler::funDeclaration(){
+    uint8_t global = parseVariable("Expect function name.");
+    markInitialized();
+    function(TYPE_FUNCTION);
+    defineVariable(global);
+}
+
 void Compiler::declaration(){
     if (match(TOKEN_VAR)){
         varDeclaration();
+    }else if(match(TOKEN_FUN)){
+        funDeclaration();
     }else{
         statement();
     }
@@ -253,7 +286,7 @@ void Compiler::synchronize(){
 }
 
 uint8_t Compiler::makeConstant(value_t val) {
-  int constant = chunk->addConstantToValue(val);
+  int constant = currentChunk()->addConstantToValue(val);
   if (constant > UINT8_MAX) {
     error("Too many constants in one chunk.");
     return 0;
@@ -286,7 +319,7 @@ int Compiler::resolveLocal(CompilerState* compilerState, Token* name){
 
 void Compiler::namedVariable(Token name, bool canAssign){
     uint8_t getOp, setOp;
-    int arg = resolveLocal(&compilerState, &name);
+    int arg = resolveLocal(&currentCompiler->compilerState, &name);
     if(arg != -1){
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
@@ -327,6 +360,54 @@ void Compiler::literal(){
     }
 }
 
+void Compiler::function(FunctionType type){
+    Compiler compiler(source);
+    encloseCompiler = currentCompiler; // move current one
+    currentCompiler = &compiler;
+    beginScope();
+
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    if(!check(TOKEN_RIGHT_PAREN)){
+        do {
+            currentCompiler->compilerState.function->arity++;
+            if(currentCompiler->compilerState.function->arity > 255){
+                errorAtCurrent("Can't have more than parameter name.");
+            }
+            uint8_t constant = parseVariable("Expect parameter name.");
+            defineVariable(constant);
+        } while(match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    block();
+
+    ObjFunction* function = endCompiler();
+    currentCompiler = encloseCompiler; // regain current one
+    emitByte(OP_CLOSURE);
+    emitByte(makeConstant(OBJ_VAL(function)));
+}
+
+void Compiler::call(bool canAssign){
+    uint8_t argCount = argumentList();
+    emitByte(OP_CALL);
+    emitByte(argCount);
+}
+
+uint8_t Compiler::argumentList(){
+    uint8_t argCount = 0;
+    if(!check(TOKEN_RIGHT_PAREN)){
+        do {
+            expression();
+            if(argCount == 255){
+                error("Can't have more than 255 arguments.");
+            }
+            argCount++;
+        } while(match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+    return argCount;
+}
+
 void Compiler::patchJump(int offset){
     int jump = currentChunk()->getChunk()->size() - offset - 2;
     if(jump > UINT16_MAX){
@@ -344,12 +425,12 @@ int Compiler::emitJump(uint8_t instruction){
 }
 
 void Compiler::emitConstant(value_t input_val){
-    chunk->writeChunk(OP_CONSTANT, parser.previous.line);
-    chunk->writeValue(input_val, parser.previous.line);
+    currentChunk()->writeChunk(OP_CONSTANT, parser.previous.line);
+    currentChunk()->writeValue(input_val, parser.previous.line);
 }
 
 void Compiler::emitByte(uint8_t op_code){
-    chunk->writeChunk(op_code, parser.previous.line);
+    currentChunk()->writeChunk(op_code, parser.previous.line);
 }
 
 void Compiler::emitLoop(int loopStart){
@@ -390,12 +471,12 @@ void Compiler::unary(){
 uint8_t Compiler::parseVariable(std::string errorMessage){
     consume(TOKEN_IDENTIFIER, errorMessage);
     declareVariable();
-    if(compilerState.scopeDepth > 0) return 0;
+    if(currentCompiler->compilerState.scopeDepth > 0) return 0;
     return identifierConstant(&parser.previous);
 }
 
 void Compiler::markInitialized(){
-    compilerState.locals[compilerState.localCount-1].depth = compilerState.scopeDepth;
+    currentCompiler->compilerState.locals[currentCompiler->compilerState.localCount-1].depth = currentCompiler->compilerState.scopeDepth;
 }
 
 bool Compiler::identifierEqual(Token* a, Token* b){
@@ -405,13 +486,13 @@ bool Compiler::identifierEqual(Token* a, Token* b){
 }
 
 void Compiler::declareVariable(){
-    if(compilerState.scopeDepth == 0) return;
+    if(currentCompiler->compilerState.scopeDepth == 0) return;
 
     Token* name = &parser.previous;
     // look above level local variable
-    for(int i=compilerState.localCount-1; i>=0; i--){
-        Local* local = &compilerState.locals[i];
-        if(local->depth != -1 && local->depth < compilerState.scopeDepth){
+    for(int i=currentCompiler->compilerState.localCount-1; i>=0; i--){
+        Local* local = &currentCompiler->compilerState.locals[i];
+        if(local->depth != -1 && local->depth < currentCompiler->compilerState.scopeDepth){
             break;
         }
 
@@ -423,17 +504,17 @@ void Compiler::declareVariable(){
 }
 
 void Compiler::addLocal(Token name){
-    if(compilerState.localCount == UINT8_COUT){
+    if(currentCompiler->compilerState.localCount == UINT8_COUNT){
         error("Too many local variables in function.");
         return;
     }
-    Local* local = &compilerState.locals[compilerState.localCount++];
+    Local* local = &currentCompiler->compilerState.locals[currentCompiler->compilerState.localCount++];
     local->name = name;
-    local->depth = compilerState.scopeDepth;
+    local->depth = currentCompiler->compilerState.scopeDepth;
 }
 
 void Compiler::defineVariable(uint8_t global){
-    if(compilerState.scopeDepth > 0){
+    if(currentCompiler->compilerState.scopeDepth > 0){
         markInitialized();
         return;
     }
@@ -505,20 +586,19 @@ void Compiler::errorAt(Token* token, std::string message){
     parser.hadError = true;
 }
 
-bool Compiler::compile(std::string source){
+ObjFunction* Compiler::compile(std::string source){
     advance();
-    // expression();
-    // consume(TOKEN_EOF, "Expect end of expression.");
     while(!match(TOKEN_EOF)){
         declaration();
     }
-    endCompiler();
-    return !parser.hadError;
+    ObjFunction* function = endCompiler();
+    if(parser.hadError) return NULL;
+    return function;
 }
 
 void Compiler::init_rules(){
     rules[TOKEN_LEFT_PAREN] = ParseRule{
-        std::bind(&Compiler::grouping, this), NULL, PREC_NONE};
+        std::bind(&Compiler::grouping, this), std::bind(&Compiler::call, this, true), PREC_CALL};
     rules[TOKEN_RIGHT_PAREN] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_LEFT_BRACE] = ParseRule{

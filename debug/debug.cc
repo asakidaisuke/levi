@@ -93,6 +93,9 @@ void disassembleInstruction(chunk_iter* iter, Chunk* chunk){
         case OP_LOOP:
             jumpInstruction("OP_LOOP", -1, chunk, iter);
             break;
+        case OP_CALL:
+            byteInstruction("OP_CALL", iter, chunk);
+            break;
         default:
             std::cout << "unknown operation code " << instruction << std::endl;
             ++(*iter);

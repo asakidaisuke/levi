@@ -9,7 +9,7 @@ using chunk_array = std::vector<uint8_t>;
 using line_array = std::vector<int>;
 using chunk_iter = chunk_array::const_iterator;
 
-typedef enum {
+enum OpCode {
     OP_CONSTANT,
     OP_NIL,
     OP_TRUE,
@@ -33,8 +33,10 @@ typedef enum {
     OP_JUMP,
     OP_JUMP_IF_FALSE,
     OP_LOOP,
+    OP_CALL,
+    OP_CLOSURE,
     OP_RETURN,
-} OpCode;
+};
 
 class Chunk{
     public:

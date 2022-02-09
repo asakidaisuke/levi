@@ -10,7 +10,7 @@
 #ifdef DEBUG_PRINT_CODE
 #include "debug.hpp"
 #include "object.hpp"
-#define UINT8_COUT (UINT8_MAX + 1)
+#define UINT8_COUNT (UINT8_MAX + 1)
 #endif
 
 
@@ -28,6 +28,11 @@ enum Precedence{
     PREC_PRIMARY
 };
 
+enum FunctionType{
+    TYPE_FUNCTION,
+    TYPE_SCRIPT
+};
+
 struct Parser{
     Token current;
     Token previous;
@@ -43,24 +48,35 @@ struct ParseRule{
 
 struct Local{
     Token name;
-    int depth;
+    int depth{0};
 };
 
+class Compiler;
+
 struct CompilerState{
-    Local locals[UINT8_COUT];
+    ObjFunction* function;
+    FunctionType type;
+
+    Local locals[UINT8_COUNT];
     int localCount{0};
     int scopeDepth{0};
 };
 
 class Compiler{
     public:
-        bool compile(std::string);
-        inline std::unique_ptr<Chunk> get_chunk(){
-            return std::move(chunk);
-        }
+        ObjFunction* compile(std::string);
+        // inline std::unique_ptr<Chunk> get_chunk(){
+        //     return std::move(chunk);
+        // }
+        void setCurrent(Compiler* compiler);
         Compiler(std::string source) : scanner(&source){
-            chunk = std::make_unique<Chunk>();
+            // chunk = std::make_unique<Chunk>();
             init_rules();
+
+            compilerState.function = new ObjFunction;
+            compilerState.function->chunk = std::make_unique<Chunk>();
+            source = source;
+            currentCompiler = this;
             }
     private:
         void advance();
@@ -80,13 +96,18 @@ class Compiler{
         void string();
         void variable(bool);
         void literal();
+        void function(FunctionType);
+        void call(bool);
+        uint8_t argumentList();
         void printStatement();
         void whileStatement();
         void ifStatement();
         void forStatement();
         void expressionStatement();
+        void returnStatement();
         void statement();
         void varDeclaration();
+        void funDeclaration();
         void declaration();
         void synchronize();
         void defineVariable(uint8_t);
@@ -94,7 +115,7 @@ class Compiler{
         void or_(bool);
         uint8_t identifierConstant(Token*);
         void namedVariable(Token, bool);
-        void endCompiler();
+        ObjFunction* endCompiler();
         void emitReturn();
         void emitByte();
         void emitLoop(int);
@@ -119,11 +140,14 @@ class Compiler{
         ParseRule* getRule(TokenType type);
         int resolveLocal(CompilerState* , Token* );
         Chunk* currentChunk();
-        std::unique_ptr<Chunk> chunk;
+        // std::unique_ptr<Chunk> chunk;
         Parser parser;
         Scanner scanner;
         std::unordered_map<TokenType, ParseRule> rules;
         CompilerState compilerState;
+        Compiler* currentCompiler;
+        Compiler* encloseCompiler;
+        std::string source;
 };
 
 #endif
