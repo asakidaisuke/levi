@@ -49,10 +49,13 @@ class VirtualMachine{
         void concatenate();
         bool call(ObjClosure*, int);
         bool callValue(value_t callee, int argCount);
+        ObjUpvalue* captureUpvalue(value_t*);
+        void closeUpvalues(value_t*);
         Obj* object;
         std::unordered_map<std::string, value_t> globals_table;
         CallFrame frames[FRAMES_MAX];
         int frameCount{0};
+        ObjUpvalue* openUpvalues{NULL};
 };
 
 #endif

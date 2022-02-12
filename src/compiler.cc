@@ -222,7 +222,11 @@ void Compiler::endScope(){
 
     while(compilerState.localCount > 0 && compilerState.locals[compilerState.localCount-1].depth >
                 compilerState.scopeDepth){
-            emitByte(OP_POP);
+            if (currentCompiler->compilerState.locals[currentCompiler->compilerState.localCount-1].isCaptured){
+                emitByte(OP_CLOSE_UPVALUE);
+            }else{
+                emitByte(OP_POP);
+            }
             compilerState.localCount--;
         }
 }
@@ -317,13 +321,48 @@ int Compiler::resolveLocal(CompilerState* compilerState, Token* name){
     return -1;
 }
 
+int Compiler::resolveUpvalue(Compiler* compiler, Token* name){
+    if(compiler->encloseCompiler == NULL) return -1;
+
+    int local = resolveLocal(&compiler->encloseCompiler->compilerState, name);
+    if(local != -1){
+        compiler->encloseCompiler->compilerState.locals[local].isCaptured = true;
+        return addUpvalue(compiler, (uint8_t)local, true);
+    }
+
+    return -1;
+}
+
+int Compiler::addUpvalue(Compiler* compiler, uint8_t index, bool isLocal){
+    int upvalueCount = compiler->compilerState.function->upvalueCount;
+
+    for (int i = 0; i < upvalueCount; i++) {
+        Upvalue* upvalue = &compiler->compilerState.upvalues[i];
+        if (upvalue->index == index && upvalue->isLocal == isLocal) {
+        return i;
+        }
+    }
+
+    if(upvalueCount == UINT8_COUNT){
+        error("Too many closure variables in function.");
+        return 0;
+    }
+
+    compiler->compilerState.upvalues[upvalueCount].isLocal = isLocal;
+    compiler->compilerState.upvalues[upvalueCount].index = index;
+    return compiler->compilerState.function->upvalueCount++;
+}
+
 void Compiler::namedVariable(Token name, bool canAssign){
     uint8_t getOp, setOp;
     int arg = resolveLocal(&currentCompiler->compilerState, &name);
     if(arg != -1){
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
-    } else{
+    }else if((arg = resolveUpvalue(currentCompiler, &name)) != -1){
+        getOp = OP_GET_UPVALUE;
+        setOp = OP_SET_UPVALUE;
+    }else{
         arg = identifierConstant(&name);
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
@@ -362,8 +401,11 @@ void Compiler::literal(){
 
 void Compiler::function(FunctionType type){
     Compiler compiler(source);
-    encloseCompiler = currentCompiler; // move current one
-    currentCompiler = &compiler;
+    Compiler* temp = currentCompiler; // move current one
+    Compiler** temp_ptr = &currentCompiler;
+    Compiler* new_ptr = &compiler;
+    *temp_ptr = new_ptr;
+    currentCompiler->encloseCompiler = temp;
     beginScope();
 
     consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
@@ -382,9 +424,14 @@ void Compiler::function(FunctionType type){
     block();
 
     ObjFunction* function = endCompiler();
-    currentCompiler = encloseCompiler; // regain current one
+    currentCompiler = currentCompiler->encloseCompiler; // regain current one
     emitByte(OP_CLOSURE);
     emitByte(makeConstant(OBJ_VAL(function)));
+
+    for (int i = 0; i < function->upvalueCount; i++){
+        emitByte(compiler.compilerState.upvalues[i].isLocal ? 1 : 0);
+        emitByte(compiler.compilerState.upvalues[i].index);
+    }
 }
 
 void Compiler::call(bool canAssign){
@@ -511,6 +558,7 @@ void Compiler::addLocal(Token name){
     Local* local = &currentCompiler->compilerState.locals[currentCompiler->compilerState.localCount++];
     local->name = name;
     local->depth = currentCompiler->compilerState.scopeDepth;
+    local->isCaptured = false;
 }
 
 void Compiler::defineVariable(uint8_t global){

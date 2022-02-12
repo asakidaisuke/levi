@@ -40,7 +40,7 @@ value_t clockNative(int argCount, value_t* args){
 bool VirtualMachine::callValue(value_t callee, int argCount){
     if (IS_OBJ(callee)){
         switch(OBJ_TYPE(callee)){
-            case OBJ_CLOSUER:
+            case OBJ_CLOSURE:
                 return call(AS_CLOSURE(callee), argCount);
             case OBJ_NATIVE:{
                 NativeFn native = AS_NATIVE(callee);
@@ -57,7 +57,40 @@ bool VirtualMachine::callValue(value_t callee, int argCount){
     return false;
 }
 
-bool VirtualMachine::call(ObjClouser* closure, int argCount){
+ObjUpvalue* VirtualMachine::captureUpvalue(value_t* local){
+    ObjUpvalue* prevUpvalue = NULL;
+    ObjUpvalue* upvalue = openUpvalues;
+
+    while(upvalue != NULL && upvalue->location > local){
+        prevUpvalue = upvalue;
+        upvalue = upvalue->next;
+    }
+
+    if(upvalue != NULL && upvalue->location == local){
+        return upvalue;
+    }
+
+    ObjUpvalue* createdUpvalue = new ObjUpvalue(local);
+
+    if(prevUpvalue == NULL){
+        openUpvalues = createdUpvalue;
+    }else{
+        prevUpvalue->next = createdUpvalue;
+    }
+    return createdUpvalue;
+
+}
+
+void VirtualMachine::closeUpvalues(value_t* last){
+    while(openUpvalues != NULL && openUpvalues->location >= last){
+        ObjUpvalue* upvalue = openUpvalues;
+        upvalue->closed = *upvalue->location;
+        upvalue->location = &upvalue->closed;
+        openUpvalues = upvalue->next;
+    }
+}
+
+bool VirtualMachine::call(ObjClosure* closure, int argCount){
     if (argCount != closure->function->arity){
         runtimeError("Expected call");
         return false;
@@ -90,12 +123,13 @@ InterpretResult VirtualMachine::interpret(std::string source){
     ObjFunction* function = compiler.compile(source);
     if(function==NULL) return INTERPRET_COMPILE_ERROR;
 
-    stack_push(OBJ_VAL(function));
+    ObjClosure* closure = new ObjClosure(function);
+    stack_push(OBJ_VAL(closure));
     // CallFrame* frame = &frames[frameCount++];
     // frame->function = std::move(function);
     // frame->ip = frame->function->chunk.getChunk()->begin();
     // frame->slots = stack_ptr;
-    call(function, 0);
+    call(closure, 0);
 
     return run();
 }
@@ -106,7 +140,7 @@ void VirtualMachine::runtimeError(std::string format){
     std::cout << "[line " << line << "] Error";
     for(int i = frameCount -1; i >=0; i--){
         CallFrame* frame = &frames[i];
-        ObjFunction* function = frame->function;
+        ObjFunction* function = frame->closure->function;
         chunk_iter instruction = frame->ip - function->chunk->getChunk()->size() - 1;
         int line = chunk->getLine(*instruction);
         std::cout << "[line " << line << "] Error";
@@ -137,15 +171,15 @@ InterpretResult VirtualMachine::run(){
                     std::cout << "[" << AS_NUMBER(*slot) << "]" << std::endl;
                 if (IS_STRING(*slot))
                     std::cout << "[" << AS_CSTRING(*slot) << "]" << std::endl;
-                if (IS_FUNCTION(*slot))
-                    std::cout << "[function]" << std::endl;
+                if (IS_CLOSURE(*slot))
+                    std::cout << "[closure]" << std::endl;
             }
         #endif
         
         uint8_t instruction;
         switch (instruction = read_byte()){
             case OP_CONSTANT:{
-                value_t constant = frame->function->chunk->getValue(read_byte());
+                value_t constant = frame->closure->function->chunk->getValue(read_byte());
                 stack_push(constant);
                 break;
             }
@@ -164,7 +198,7 @@ InterpretResult VirtualMachine::run(){
                 break;
             }
             case OP_GET_GLOBAL:{
-                ObjString* name = AS_STRING(frame->function->chunk->getValue(read_byte()));
+                ObjString* name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
                 value_t val;
                 if (globals_table.find(name->strs) == globals_table.end()){
                     std::string format = "Undifined variable " + name->strs + ".";
@@ -177,13 +211,13 @@ InterpretResult VirtualMachine::run(){
                 break;
             }
             case OP_DEFINE_GLOBAL:{
-                ObjString* name = AS_STRING(frame->function->chunk->getValue(read_byte()));
+                ObjString* name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
                 globals_table[name->strs] = peek(0);
                 stack_pop();
                 break;
             }
             case OP_SET_GLOBAL:{
-                ObjString* name = AS_STRING(frame->function->chunk->getValue(read_byte()));
+                ObjString* name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
                 if (globals_table.find(name->strs) == globals_table.end()){
                     std::string format = "Undifined variable " + name->strs + ".";
                     runtimeError(format);
@@ -191,6 +225,16 @@ InterpretResult VirtualMachine::run(){
                 }else{
                     globals_table[name->strs] = peek(0);
                 }
+                break;
+            }
+            case OP_GET_UPVALUE:{
+                uint8_t slot = read_byte();
+                stack_push(*frame->closure->upvalues[slot]->location);
+                break;
+            }
+            case OP_SET_UPVALUE:{
+                uint8_t slot = read_byte();
+                *frame->closure->upvalues[slot]->location = peek(0);
                 break;
             }
             case OP_EQUAL:{
@@ -255,14 +299,31 @@ InterpretResult VirtualMachine::run(){
             }
             case OP_CLOSURE:{
                 // suppose to get function obj
-                value_t constant = frame->function->chunk->getValue(read_byte());
+                value_t constant = frame->closure->function->chunk->getValue(read_byte());
                 ObjFunction* function = AS_FUNCTION(constant);
                 ObjClosure* closure = new ObjClosure(function);
                 stack_push(OBJ_VAL(closure));
+
+                for(int i=0; i < closure->upvalueCount; i++){
+                    uint8_t isLocal = read_byte();
+                    uint8_t index = read_byte();
+                    if(isLocal){
+                        closure->upvalues[i] = captureUpvalue(
+                            &(*(frame->slots+index)));
+                    }else{
+                        closure->upvalues[i] = frame->closure->upvalues[index];
+                    }
+                }
+                break;
+            }
+            case OP_CLOSE_UPVALUE:{
+                closeUpvalues(&(*(stack_ptr-1)));
+                stack_pop();
                 break;
             }
             case OP_RETURN:{
                 value_t result = stack_pop();
+                closeUpvalues(&(*(frame->slots)));
                 frameCount--;
                 if(frameCount == 0){
                     stack_pop();

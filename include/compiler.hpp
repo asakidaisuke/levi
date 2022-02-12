@@ -49,9 +49,15 @@ struct ParseRule{
 struct Local{
     Token name;
     int depth{0};
+    bool isCaptured{false};
 };
 
 class Compiler;
+
+struct Upvalue{
+    uint8_t index;
+    bool isLocal;
+};
 
 struct CompilerState{
     ObjFunction* function;
@@ -60,17 +66,14 @@ struct CompilerState{
     Local locals[UINT8_COUNT];
     int localCount{0};
     int scopeDepth{0};
+    Upvalue upvalues[UINT8_COUNT];
 };
 
 class Compiler{
     public:
         ObjFunction* compile(std::string);
-        // inline std::unique_ptr<Chunk> get_chunk(){
-        //     return std::move(chunk);
-        // }
         void setCurrent(Compiler* compiler);
         Compiler(std::string source) : scanner(&source){
-            // chunk = std::make_unique<Chunk>();
             init_rules();
 
             compilerState.function = new ObjFunction;
@@ -139,6 +142,8 @@ class Compiler{
         uint8_t makeConstant(value_t input_val);
         ParseRule* getRule(TokenType type);
         int resolveLocal(CompilerState* , Token* );
+        int resolveUpvalue(Compiler*, Token*);
+        int addUpvalue(Compiler*, uint8_t, bool);
         Chunk* currentChunk();
         // std::unique_ptr<Chunk> chunk;
         Parser parser;
