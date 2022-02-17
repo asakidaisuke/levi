@@ -16,13 +16,13 @@ void Value::printValue(value_t val){
     switch(val.type){
         case VAL_BOOL:{
             std::string is_ = AS_BOOL(val) ? "true" : "false";
-            std::cout << is_ << std::endl;
+            std::cout << is_;
             break;}
         case VAL_NIL:{
-            std::cout << "nil" << std::endl;
+            std::cout << "nil";
             break;}
         case VAL_NUMBER:{
-            std::cout << AS_NUMBER(val) << std::endl;
+            std::cout << AS_NUMBER(val);
             break;}
         case VAL_OBJ:{
             Object::printObject(val);

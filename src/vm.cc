@@ -1,7 +1,5 @@
-#include <iostream>
 #include "vm.hpp"
-#include <time.h>
-
+#include <iostream>
 
 
 #define BINARY_OP(valueType, op) \
@@ -33,10 +31,6 @@ bool VirtualMachine::isFalsey(value_t val){
     return IS_NIL(val) || (IS_BOOL(val) && !AS_BOOL(val));
 }
 
-value_t clockNative(int argCount, value_t* args){
-    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC );
-}
-
 bool VirtualMachine::callValue(value_t callee, int argCount){
     if (IS_OBJ(callee)){
         switch(OBJ_TYPE(callee)){
@@ -48,6 +42,26 @@ bool VirtualMachine::callValue(value_t callee, int argCount){
                 stack_ptr -= argCount + 1;
                 stack_push(result);
                 return true;
+            }
+            case OBJ_CLASS:{
+                // instantiate class
+                // if there is init method, call it first
+                ObjClass* klass = AS_CLASS(callee);
+                stack_ptr[-argCount -1] = OBJ_VAL(new ObjInstance(klass));
+                if(!(klass->methods.find("init") == klass->methods.end())){
+                    value_t initializer;
+                    initializer = klass->methods["init"];
+                    call(AS_CLOSURE(initializer), argCount);
+                }else if(argCount != 0){
+                    runtimeError("Expected 0 arguments but got some.");
+                    return false;
+                }
+                return true;
+            }
+            case OBJ_BOUND_METHOD:{
+                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+                stack_ptr[-argCount -1] = bound->receiver;
+                return call(bound->method, argCount);
             }
             default:
                 break;
@@ -90,9 +104,43 @@ void VirtualMachine::closeUpvalues(value_t* last){
     }
 }
 
+void VirtualMachine::defineNative(
+    std::string name, NativeFn function){
+    ObjString* strObj = new ObjString;
+    // strObj->strs = name;
+    // strObj->length = name.end() - name.begin();
+    // stack_push(OBJ_VAL(strObj));
+
+    ObjNative* native = new ObjNative(function);
+    // stack_push(OBJ_VAL(native));
+
+    globals_table[name] = OBJ_VAL(native);
+}
+
+void VirtualMachine::defineMethod(ObjString* name){
+    value_t method = peek(0);
+    ObjClass* klass = AS_CLASS(peek(1));
+    klass->methods[name->strs] = method;
+    stack_pop();
+}
+
+bool VirtualMachine::bindMethod(ObjClass* klass, ObjString* name){
+    if(klass->methods.find(name->strs) == klass->methods.end()){
+        runtimeError("Undefined proprety.");
+        return false;
+    }
+    value_t method = klass->methods[name->strs];
+    ObjBoundMethod* bound = new ObjBoundMethod(peek(0), AS_CLOSURE(method));
+    stack_pop();
+    stack_push(OBJ_VAL(bound));
+    return true;
+}
+
 bool VirtualMachine::call(ObjClosure* closure, int argCount){
     if (argCount != closure->function->arity){
-        runtimeError("Expected call");
+        std::string error_msg = "Expected " + std::to_string(closure->function->arity)+\
+                                " arguments bet got " + std::to_string(argCount);
+        runtimeError(error_msg);
         return false;
     }
 
@@ -106,6 +154,36 @@ bool VirtualMachine::call(ObjClosure* closure, int argCount){
     frame->ip = closure->function->chunk->getChunk()->begin();
     frame->slots = stack_ptr - argCount; // stack_ptr is pointer at top of stack
     return true;
+}
+
+bool VirtualMachine::invokeFromClass(ObjClass* klass, ObjString* name,
+                            int argCount) {
+    if (klass->methods.find(name->strs) == klass->methods.end()){
+        runtimeError("Undefined property.");
+        return false;
+    }
+
+    value_t method = klass->methods[name->strs];
+    return call(AS_CLOSURE(method), argCount);
+}
+
+bool VirtualMachine::invoke(ObjString* name, int argCount) {
+    value_t receiver = peek(argCount);
+
+    if (!IS_INSTANCE(receiver)) {
+        runtimeError("Only instances have methods.");
+        return false;
+    }
+
+    ObjInstance* instance = AS_INSTANCE(receiver);
+
+    value_t value;
+    if (!(instance->fields.find(name->strs) == instance->fields.end())){
+        stack_ptr[-argCount - 1] = value;
+        return callValue(value, argCount);
+    }
+
+  return invokeFromClass(instance->klass, name, argCount);
 }
 
 void VirtualMachine::concatenate(){
@@ -125,37 +203,26 @@ InterpretResult VirtualMachine::interpret(std::string source){
 
     ObjClosure* closure = new ObjClosure(function);
     stack_push(OBJ_VAL(closure));
-    // CallFrame* frame = &frames[frameCount++];
-    // frame->function = std::move(function);
-    // frame->ip = frame->function->chunk.getChunk()->begin();
-    // frame->slots = stack_ptr;
     call(closure, 0);
 
     return run();
 }
 
 void VirtualMachine::runtimeError(std::string format){
-    size_t offset = ip - chunk->getChunk()->begin();
-    int line = chunk->getLine(offset);
-    std::cout << "[line " << line << "] Error";
-    for(int i = frameCount -1; i >=0; i--){
+    std::cout << "Traceback (most recent call last):" << std::endl;
+    for(int i = 0; i < frameCount; i++){
         CallFrame* frame = &frames[i];
-        ObjFunction* function = frame->closure->function;
-        chunk_iter instruction = frame->ip - function->chunk->getChunk()->size() - 1;
-        int line = chunk->getLine(*instruction);
-        std::cout << "[line " << line << "] Error";
-        if (function->name == NULL){
+        uint8_t offset = frame->ip - frame->closure->function->chunk->getChunk()->begin();
+        int line = frame->closure->function->chunk->getLine(offset);
+        std::cout << "  line " << line << ", in ";
+        if (frame->closure->function->name == ""){
             std::cerr << "script\n" << std::endl;
         }else{
-            std::cerr << function->name << std::endl;
+            std::cerr << "<" << frame->closure->function->name << ">" <<std::endl;
         }
     }
+    std::cerr << "RuntimeError: " << format << std::endl;
 }
-
-// void VirtualMachine::defineNative(std::string name, NativeFn funtion){
-//     stack_push(OBJ_STRING);
-//     stack_push()
-// }
 
 InterpretResult VirtualMachine::run(){
     CallFrame* frame = &frames[frameCount - 1];
@@ -163,17 +230,29 @@ InterpretResult VirtualMachine::run(){
     auto read_short = [&](){frame->ip += 2; return (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]);};
     for(;;){
         #ifdef DEBUG_TRACE_EXECUTION
-            std::cout << "             " << std::endl;
+            std::cout << std::endl;
             for(stack_iter slot = stack_memory->begin(); slot != stack_ptr; slot++){
-                if (slot->type == VAL_BOOL)
+                if (slot->type == VAL_BOOL){
                     std::cout << "[" << AS_BOOL(*slot) << "]" << std::endl;
-                if (slot->type == VAL_NUMBER)
+                }else if (slot->type == VAL_NIL){
+                    std::cout << "[Nil]" << std::endl;
+                }else if (slot->type == VAL_NUMBER){
                     std::cout << "[" << AS_NUMBER(*slot) << "]" << std::endl;
-                if (IS_STRING(*slot))
-                    std::cout << "[" << AS_CSTRING(*slot) << "]" << std::endl;
-                if (IS_CLOSURE(*slot))
-                    std::cout << "[closure]" << std::endl;
+                }else if (IS_STRING(*slot)){
+                    std::cout << "String: " << "[" << AS_CSTRING(*slot) << "]" << std::endl;
+                }else if (IS_CLOSURE(*slot)){
+                    ObjClosure* closure = AS_CLOSURE(*slot);
+                    std::string name = closure->function->name;
+                    std::cout << "[closure] : " << name << std::endl;
+                }else if (IS_INSTANCE(*slot)){
+                    std::cout << "[instance] : " << AS_INSTANCE(*slot)->klass->name->strs << std::endl;
+                }else if (IS_CLASS(*slot)){
+                    std::cout << "[class] : " << AS_CLASS(*slot)->name->strs << std::endl;
+                }else{
+                    std::cout << "UNKONWN OBJECT" << std::endl;
+                }
             }
+            std::cout << get_op_code(*frame->ip) << " :" << frame->closure->function->name << std::endl;
         #endif
         
         uint8_t instruction;
@@ -189,7 +268,7 @@ InterpretResult VirtualMachine::run(){
             case OP_POP: stack_pop(); break;
             case OP_GET_LOCAL:{
                 uint8_t slot = read_byte();
-                stack_push(frame->slots[slot]);
+                stack_push(frame->slots[slot-1]);
                 break;
             }
             case OP_SET_LOCAL:{
@@ -297,6 +376,15 @@ InterpretResult VirtualMachine::run(){
                 frame = &frames[frameCount-1];
                 break;
             }
+            case OP_INVOKE: {
+                ObjString* method = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
+                int argCount = read_byte();
+                if(!invoke(method, argCount)){
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &frames[frameCount-1];
+                break;
+            }
             case OP_CLOSURE:{
                 // suppose to get function obj
                 value_t constant = frame->closure->function->chunk->getValue(read_byte());
@@ -334,8 +422,78 @@ InterpretResult VirtualMachine::run(){
                 frame = &frames[frameCount-1];
                 break;
             }
+            case OP_CLASS:{
+                stack_push(OBJ_VAL(
+                    new ObjClass(AS_STRING(frame->closure->function->chunk->getValue(read_byte()))))
+                    );
+                break;
+            }
+            case OP_GET_PROPERTY:{
+                if(!IS_INSTANCE(peek(0))){
+                    runtimeError("Only instance have properties.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjInstance* instance = AS_INSTANCE(peek(0));
+                ObjString* name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
+
+                value_t val;
+                if(!(instance->fields.find(name->strs) == instance->fields.end())){
+                    stack_pop();
+                    stack_push(instance->fields[name->strs]);
+                    break;
+                }
+
+                if(!bindMethod(instance->klass, name)){
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                break;
+            }
+            case OP_SET_PROPERTY:{
+                if(!IS_INSTANCE(peek(1))){
+                    runtimeError("Only instance have feilds.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjInstance* instance = AS_INSTANCE(peek(1));
+                ObjString* field_name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
+                instance->fields[field_name->strs] = peek(0);
+                value_t val = stack_pop();
+                stack_push(val);
+                break;
+            }
+            case OP_METHOD:
+                defineMethod(AS_STRING(frame->closure->function->chunk->getValue(read_byte())));
+                break;
+            case OP_INHERIT:{
+                value_t superclass = peek(1);
+                if(!IS_CLASS(superclass)){
+                    runtimeError("Superclass must be a class.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjClass* subclass = AS_CLASS(peek(0));
+                subclass->methods = AS_CLASS(superclass)->methods;
+                stack_pop();
+                break;
+            }
+            case OP_GET_SUPER:{
+                ObjString* name = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
+                ObjClass* superclass = AS_CLASS(stack_pop());
+
+                if(!bindMethod(superclass, name)){
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_SUPER_INVOKE:{
+                ObjString* method = AS_STRING(frame->closure->function->chunk->getValue(read_byte()));
+                int argCount = read_byte();
+                ObjClass* superclass = AS_CLASS(stack_pop());
+                if(!invokeFromClass(superclass, method, argCount)){
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &frames[frameCount-1];
+                break;
+            }
         }
     }
 }
-
-

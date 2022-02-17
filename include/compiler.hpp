@@ -7,11 +7,9 @@
 #include "chunk.hpp"
 #include "scanner.hpp"
 #include "common.hpp"
-#ifdef DEBUG_PRINT_CODE
 #include "debug.hpp"
 #include "object.hpp"
 #define UINT8_COUNT (UINT8_MAX + 1)
-#endif
 
 
 enum Precedence{
@@ -30,6 +28,8 @@ enum Precedence{
 
 enum FunctionType{
     TYPE_FUNCTION,
+    TYPE_INITIALIZER,
+    TYPE_METHOD,
     TYPE_SCRIPT
 };
 
@@ -69,25 +69,31 @@ struct CompilerState{
     Upvalue upvalues[UINT8_COUNT];
 };
 
+struct ClassCompiler{
+    struct ClassCompiler* enclosing;
+    bool hasSuperclass{false};
+};
+
 class Compiler{
     public:
         ObjFunction* compile(std::string);
         void setCurrent(Compiler* compiler);
         Compiler(std::string source) : scanner(&source){
             init_rules();
-
             compilerState.function = new ObjFunction;
             compilerState.function->chunk = std::make_unique<Chunk>();
             source = source;
             currentCompiler = this;
+            encloseCompiler=NULL;
             }
     private:
+        void add_this_to_compiler(FunctionType type);
         void advance();
         inline void errorAtCurrent(std::string message){
             errorAt(&parser.current, message);
         }
         inline void error(std::string message){
-            errorAt(&parser.current, message);
+            errorAt(&parser.previous, message);
         }
         void errorAt(Token* token, std::string message);
         void consume(TokenType type, std::string message);
@@ -101,6 +107,7 @@ class Compiler{
         void literal();
         void function(FunctionType);
         void call(bool);
+        void dot(bool);
         uint8_t argumentList();
         void printStatement();
         void whileStatement();
@@ -112,10 +119,13 @@ class Compiler{
         void varDeclaration();
         void funDeclaration();
         void declaration();
+        void classDeclaration();
         void synchronize();
         void defineVariable(uint8_t);
         void and_(bool);
         void or_(bool);
+        void this_(bool);
+        void super_(bool canAssign);
         uint8_t identifierConstant(Token*);
         void namedVariable(Token, bool);
         ObjFunction* endCompiler();
@@ -129,6 +139,8 @@ class Compiler{
         void unary();
         void binary();
         void block();
+        void method();
+        Token syntheticToken(std::string);
         void beginScope();
         void endScope();
         void declareVariable();
@@ -145,7 +157,6 @@ class Compiler{
         int resolveUpvalue(Compiler*, Token*);
         int addUpvalue(Compiler*, uint8_t, bool);
         Chunk* currentChunk();
-        // std::unique_ptr<Chunk> chunk;
         Parser parser;
         Scanner scanner;
         std::unordered_map<TokenType, ParseRule> rules;
@@ -153,6 +164,7 @@ class Compiler{
         Compiler* currentCompiler;
         Compiler* encloseCompiler;
         std::string source;
+        ClassCompiler* currentClass{NULL};
 };
 
 #endif

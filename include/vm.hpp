@@ -8,12 +8,14 @@
 #include "compiler.hpp"
 #include "common.hpp"
 #include "debug.hpp"
+#include "naitives.hpp"
 
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 using stack_array = std::vector<value_t>;
 using stack_iter = stack_array::iterator;
+
 
 struct CallFrame{
     ObjClosure* closure;
@@ -36,10 +38,10 @@ class VirtualMachine{
         VirtualMachine(): stack_ptr(0){
             stack_memory = std::make_unique<stack_array>(STACK_MAX);
             stack_ptr = stack_memory->begin();
+            defineNative("clock", clockNative);
         }
     private:
         chunk_iter ip;
-        std::unique_ptr<Chunk> chunk;
         std::unique_ptr<stack_array> stack_memory;
         stack_iter stack_ptr;
         value_t stack_pop();
@@ -48,7 +50,12 @@ class VirtualMachine{
         void runtimeError(std::string format);
         void concatenate();
         bool call(ObjClosure*, int);
+        bool invokeFromClass(ObjClass* , ObjString* ,int);
+        bool invoke(ObjString* , int);
         bool callValue(value_t callee, int argCount);
+        bool bindMethod(ObjClass*, ObjString*);
+        void defineMethod(ObjString* );
+        void defineNative(std::string name, NativeFn function);
         ObjUpvalue* captureUpvalue(value_t*);
         void closeUpvalues(value_t*);
         Obj* object;

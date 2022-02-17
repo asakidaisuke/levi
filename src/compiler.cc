@@ -7,6 +7,22 @@
 using namespace std::placeholders;
 
 
+ void Compiler::add_this_to_compiler(FunctionType type){
+            int index = currentCompiler->compilerState.localCount++;
+            Local* local = &currentCompiler->compilerState.locals[index];
+            local->depth = 0;
+            local->isCaptured = false;
+            if(type != TYPE_FUNCTION){
+                std::string* this_ = new std::string("this");
+                local->name.start = this_->begin();
+                local->name.length = 4;
+            }else{
+                std::string* none = new std::string("");
+                local->name.start = none->begin();
+                local->name.length = 0;
+            }
+        }
+
 void Compiler::setCurrent(Compiler* compiler){
     currentCompiler = compiler;
 }
@@ -52,7 +68,7 @@ ObjFunction* Compiler::endCompiler(){
     ObjFunction* local_function = currentCompiler->compilerState.function;
     #ifdef DEBUG_PRINT_CODE
         if (!parser.hadError){
-            disassembleChunk("code", local_function->chunk.get());
+            disassembleChunk(local_function->name, local_function->chunk.get());
         }
     #endif
     return local_function;
@@ -91,6 +107,13 @@ void Compiler::binary(){
 
 void Compiler::expression(){
     parsePrecedence(PREC_ASSIGNMENT);
+}
+
+Token Compiler::syntheticToken(std::string text){
+    Token token;
+    token.start = text.begin();
+    token.length = text.size();
+    return token;
 }
 
 void Compiler::printStatement(){
@@ -184,9 +207,12 @@ void Compiler::returnStatement(){
         error("Can't return from top-level code.");
     }
 
-    if(match(TOKEN_RETURN)){
+    if (match(TOKEN_SEMICOLON)) {
         emitReturn();
-    }else{
+    } else {
+        if (currentCompiler->compilerState.type == TYPE_INITIALIZER) {
+            error("Can't return a value from an initializer.");
+        }
         expression();
         consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
         emitByte(OP_RETURN);
@@ -238,6 +264,62 @@ void Compiler::block(){
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block." );
 }
 
+void Compiler::method(){
+    consume(TOKEN_IDENTIFIER, "Expect method name.");
+    uint8_t constant = identifierConstant(&parser.previous);
+    FunctionType type = TYPE_METHOD;
+    if(parser.previous.length == 4 &&\
+        std::string(parser.previous.start,
+         parser.previous.start + parser.previous.length) ==\
+          std::string("init")){
+              type = TYPE_INITIALIZER;
+        }
+    function(type);
+    emitByte(OP_METHOD);
+    emitByte(constant);
+}
+
+void Compiler::classDeclaration(){
+    consume(TOKEN_IDENTIFIER, "Expect class name");
+    Token className = parser.previous;
+    uint8_t nameConstant = identifierConstant(&parser.previous);
+    declareVariable();
+
+    emitByte(OP_CLASS);
+    emitByte(nameConstant);
+    defineVariable(nameConstant);
+
+    ClassCompiler classCompiler;
+    classCompiler.enclosing = currentClass;
+    currentClass = &classCompiler;
+
+    if(match(TOKEN_LESS)){
+        consume(TOKEN_IDENTIFIER, "Expect superclass name.");
+        variable(false);
+        if(identifierEqual(&className, &parser.previous)){
+            error("A class can't inherit from itself.");
+        }
+
+        beginScope();
+        addLocal(syntheticToken("super"));
+        defineVariable(0);
+
+        namedVariable(className, false);
+        emitByte(OP_INHERIT);
+        classCompiler.hasSuperclass = true;
+    }
+
+    namedVariable(className, false);
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)){
+        method();
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+    emitByte(OP_POP);
+
+    currentClass = currentClass->enclosing;
+}
+
 void Compiler::varDeclaration(){
     uint8_t global = parseVariable("Expect variable name.");
     if(match(TOKEN_EQUAL)){
@@ -261,6 +343,8 @@ void Compiler::declaration(){
         varDeclaration();
     }else if(match(TOKEN_FUN)){
         funDeclaration();
+    }else if(match(TOKEN_CLASS)){
+        classDeclaration();
     }else{
         statement();
     }
@@ -271,7 +355,7 @@ void Compiler::synchronize(){
     parser.panicMode = false;
 
     while(parser.current.type != TOKEN_EOF){
-        if(parser.previous.type == TOKEN_SEMICOLON) return;
+        if(parser.previous.type == TOKEN_SEMICOLON) exit(1);
         switch(parser.current.type){
             case TOKEN_CLASS:
             case TOKEN_FUN:
@@ -282,8 +366,8 @@ void Compiler::synchronize(){
             case TOKEN_PRINT:
             case TOKEN_RETURN:
                 return;
-      default:
-        ;
+            default:
+                ;
         }
         advance();
     }
@@ -405,8 +489,14 @@ void Compiler::function(FunctionType type){
     Compiler** temp_ptr = &currentCompiler;
     Compiler* new_ptr = &compiler;
     *temp_ptr = new_ptr;
+    // add name of the function
     currentCompiler->encloseCompiler = temp;
+    currentCompiler->compilerState.function->name =\
+        std::string(parser.previous.start, 
+                    parser.previous.start + parser.previous.length);
+    currentCompiler->compilerState.type = type;   
     beginScope();
+    add_this_to_compiler(type);
 
     consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
     if(!check(TOKEN_RIGHT_PAREN)){
@@ -438,6 +528,25 @@ void Compiler::call(bool canAssign){
     uint8_t argCount = argumentList();
     emitByte(OP_CALL);
     emitByte(argCount);
+}
+
+void Compiler::dot(bool canAssign){
+    consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
+    uint8_t name = identifierConstant(&parser.previous);
+
+    if(canAssign && match(TOKEN_EQUAL)){
+        expression();
+        emitByte(OP_SET_PROPERTY);
+        emitByte(name);
+    }else if(match(TOKEN_LEFT_PAREN)){
+        uint8_t argCount = argumentList();
+        emitByte(OP_INVOKE);
+        emitByte(name);
+        emitByte(argCount);
+    }else{
+        emitByte(OP_GET_PROPERTY);
+        emitByte(name);
+    }
 }
 
 uint8_t Compiler::argumentList(){
@@ -490,6 +599,12 @@ void Compiler::emitLoop(int loopStart){
 }
 
 void Compiler::emitReturn(){
+    if(currentCompiler->compilerState.type == TYPE_INITIALIZER){
+        emitByte(OP_GET_LOCAL);
+        emitByte(0);
+    }else{
+        emitByte(OP_NIL);
+    }
     emitByte(OP_RETURN);
 }
 
@@ -590,6 +705,39 @@ void Compiler::or_(bool canAssign){
     patchJump(endJump);
 }
 
+void Compiler::this_(bool canAssign){
+    if(currentClass==NULL){
+        error("Can't use 'this' outside of a class.");
+        return;
+    }
+    variable(false);
+}
+
+void Compiler::super_(bool canAssign){
+    if(currentClass == NULL){
+        error("Can't use 'super' outside of a class.");
+    }else if(!currentClass->hasSuperclass){
+        error("Can't use 'super' in a class with no superclass.");
+    }
+
+    consume(TOKEN_DOT, "Expect '.' after 'super'.");
+    consume(TOKEN_IDENTIFIER, "Expect superclass method name.");
+    uint8_t name = identifierConstant(&parser.previous);
+
+    namedVariable(syntheticToken("this"), false);
+    if (match(TOKEN_LEFT_PAREN)) {
+        uint8_t argCount = argumentList();
+        namedVariable(syntheticToken("super"), false);
+        emitByte(OP_SUPER_INVOKE);
+        emitByte(name);
+        emitByte(argCount);
+    } else {
+        namedVariable(syntheticToken("super"), false);
+        emitByte(OP_GET_SUPER);
+        emitByte(name);
+    }
+}
+
 uint8_t Compiler::identifierConstant(Token* name){
     ObjString* objString = new ObjString;
     Object::getObjString(
@@ -625,7 +773,7 @@ void Compiler::errorAt(Token* token, std::string message){
 
     std::cout << "[line " << token->line << "] Error";
     if(token->type == TOKEN_EOF){
-        std::cout << " at end";
+        std::cout << " at end" << std::endl;
     }else if(token->type == TOKEN_ERROR){
         // Nothing
     }else{
@@ -635,6 +783,9 @@ void Compiler::errorAt(Token* token, std::string message){
 }
 
 ObjFunction* Compiler::compile(std::string source){
+    // make one element room of first local value
+    // this is to enable "this" 
+    currentCompiler->compilerState.localCount++;
     advance();
     while(!match(TOKEN_EOF)){
         declaration();
@@ -656,7 +807,7 @@ void Compiler::init_rules(){
     rules[TOKEN_COMMA] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_DOT] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        NULL, std::bind(&Compiler::dot, this, true), PREC_CALL};
     rules[TOKEN_MINUS] = ParseRule{
         std::bind(&Compiler::unary, this), std::bind(&Compiler::binary, this), PREC_TERM};
     rules[TOKEN_PLUS] = ParseRule{
@@ -712,9 +863,9 @@ void Compiler::init_rules(){
     rules[TOKEN_RETURN] = ParseRule{
         NULL, NULL, PREC_NONE};
     rules[TOKEN_SUPER] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::super_, this, true), NULL, PREC_NONE};
     rules[TOKEN_THIS] = ParseRule{
-        NULL, NULL, PREC_NONE};
+        std::bind(&Compiler::this_, this, true), NULL, PREC_NONE};
     rules[TOKEN_TRUE] = ParseRule{
         std::bind(&Compiler::literal, this), NULL, PREC_NONE};
     rules[TOKEN_VAR] = ParseRule{
