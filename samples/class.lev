@@ -1,0 +1,26 @@
+class A {
+    init(){
+        print "init now";
+    }
+    method(string){
+        print string;
+    }
+}
+
+class B < A {
+    add(string){
+        return string;
+    }
+}
+
+print "calling constractor";
+var b_instance = B();
+print "calling superclass method";
+b_instance.method("yay");
+print "input string as a member and print";
+b_instance.box = "member desu";
+print b_instance.box;
+print "Add int and print";
+print b_instance.add(10);
+print "Add string and print";
+print b_instance.add("programming");

@@ -43,7 +43,7 @@ int main(int argc, const char* argv[]){
     Chunk chunk;
     VirtualMachine vm;
     argc = 2;
-    argv[1] = "../class.lev";
+    argv[1] = "../samples/class.lev";
     if (argc == 1){
         repl();
     }else if (argc == 2){
